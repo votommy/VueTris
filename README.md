@@ -1,1 +1,7 @@
-# VueTris
+<img src="img/logo.svg" width="200px">
+
+## VueTris
+
+Work in Progress:
+- [ ] Fix gameOver trigger
+- [ ] Add leaderboard
