@@ -1,6 +1,12 @@
 <script setup lang="ts">
 // #region imports
+// Vue
 import { onBeforeMount, onMounted, ref } from 'vue'
+
+// Firebase
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.7.0/firebase-app.js';
+import { getFirestore, collection, getDocs, addDoc, query, orderBy, limit, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.7.0/firebase-firestore.js';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/9.7.0/firebase-app-check.js';
 // #endregion imports
 
 // #region types
@@ -40,6 +46,7 @@ const colors = [
 ]
 const bg = ref()
 const cube = ref()
+const tetris = ref()
 const gameOverStatus = ref(false)
 const pauseStatus = ref(false)
 const standby = ref<TetrominoShape>()
@@ -346,7 +353,7 @@ function gameOver() {
     }
 }
 function restartGame() {
-    window.location.reload();
+    location.reload();
 }
 function gamePiece(shape: TetrominoShape): TetrominoMatrix | undefined {
     switch (shape) {
@@ -522,17 +529,98 @@ function run(t = 0) {
     cancelId.value = requestAnimationFrame(run)
 }
 function shiftShape(offset: number) {
-    console.log("offset", offset)
     gamepiece.position.x += offset;
 
     if (collision()) {
         gamepiece.position.x -= offset;
     }
 }
+function initializeFirebase () {
+    // Initialize Firebase
+    const firebaseApp = initializeApp( {
+        apiKey: "AIzaSyBdtpqJx7-NCx643lDKgfAzz5Gz_XNhFmw",
+        authDomain: "jstetris-2b64d.firebaseapp.com",
+        projectId: "jstetris-2b64d",
+        storageBucket: "jstetris-2b64d.appspot.com",
+        messagingSenderId: "926826076612",
+        appId: "1:926826076612:web:c79d1f239a6a058c236c91"
+    });
+
+    // self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    // Initialize services
+    initializeAppCheck(firebaseApp, {
+        provider: new ReCaptchaV3Provider('6Ley3HIhAAAAANlShYkJQQtoCpeZbJLR00-HCVmM')
+    });
+    const db = getFirestore(firebaseApp);
+    const colRef = collection(db, 'highscores');
+    // Query db for top highscores
+    const leaders = query(colRef, orderBy('highscore', 'desc'), orderBy('timestamp'), limit(100));
+
+    // Set up leaderboard
+    const outputTable = document.querySelector("#leaderboard");
+    let text = "<h2>LEADERBOARD</h2><table>";
+    let xtraDigit = "0";
+    let count = 1;
+
+    // Render leaderboard
+    function renderLeaderboard(doc) {
+        if (count > 9) {
+            xtraDigit = "";
+        }
+
+        const timestampTooltip = new Date(doc.data().timestamp.seconds*1000).toLocaleDateString("en-US", { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        text += "<tr title='" + timestampTooltip + "'><td style='padding-right: 50px; padding-left: 15px;'>" + xtraDigit.concat(count) + "</td><td style='padding-right: 150px;'>" + doc.data().name + "</td><td style='padding-right: 15px;'>" + doc.data().highscore + "</td></tr>";
+        count++;
+    }
+
+    // Iterate through the queried db
+    getDocs(leaders)
+        .then((snapshot) => {
+            document.querySelector('#leaderboard').style.display = "block";
+            let highscores = []
+
+            snapshot.docs.forEach((doc) => {
+                highscores.push({ ...doc.data(), id: doc.id });
+                renderLeaderboard(doc);
+            })
+            text += "</table>";
+            outputTable.innerHTML = text;
+        })
+        .catch (err => {
+            console.log(err.message);
+        })
+
+    // Add highscore to db
+    const addScoreForm = document.querySelector(".addScore")
+    addScoreForm.addEventListener('submit', (e) => {
+        document.querySelector("#addScoreBtn").disabled = true; //Disable button so you can only submit once
+
+        e.preventDefault()
+
+        addDoc(colRef, {
+            name: addScoreForm.name.value.toUpperCase(),
+            highscore: parseInt(document.querySelector('#score').innerText),
+            timestamp: serverTimestamp()
+        })
+        .then(() => {
+            addScoreForm.reset()
+            document.querySelector('#namePrompt').style.display = "none";
+            restartGame()
+        })
+        .catch (err => {
+            console.log(err.message);  
+        })
+    });
+}
 // #endregion methods
 
 // #region lifecycles
 onMounted(() => {
+    //Automatically update copyright year
+    let year = new Date().getFullYear();
+    document.querySelector("#copyrightDate").innerHTML = "&copy;" + year + " Developed by Tommy";
+
     maincanvas.value = document.querySelector('#gamearena')
     ghostcanvas.value = document.querySelector('#ghostarena')
     bullpencanvas.value = document.querySelector('#bullpenarea')
@@ -550,7 +638,10 @@ onMounted(() => {
 
     bg.value = document.querySelector('#bg')
     cube.value = document.querySelector('#cube')
+    tetris.value = document.querySelector('#tetris');
     maincontext.value.drawImage(bg.value, 0, 0, 10, 20)
+
+    initializeFirebase()
 })
 onBeforeMount(() => {
     standby.value = assignPiece()
@@ -621,6 +712,26 @@ onBeforeMount(() => {
                 </div>
             </div>
         </div>
+
+        <div id="leaderboard"></div>
+
+        <div id="namePrompt">
+            <form class="addScore">
+                <label for="playerName">Name:</label>
+                <input id="playername" type="text" name="name" minlength="3" maxlength="3" placeholder="AAA" onkeypress="return (event.keyCode >= 97 && event.keyCode <= 122) || (event.keyCode >= 65 && event.keyCode <= 90)" autocomplete="off" required><br>
+                <label for="highScore">Score:</label>
+                <input id="highscore" type="number" name="highscore" readonly="readonly">
+
+                <input id="timestamp" type="datetime" name="timestamp" readonly="readonly"> <!--This is invisible. For backend purposes only-->
+
+                <br>
+                <button id="addScoreBtn">OK</button>
+            </form>
+        </div>
+        
+        <footer>
+            <p id="copyrightDate"></p>
+        </footer>
     </div>
 </template>
 
@@ -753,14 +864,14 @@ body {
 h1 {
     position: absolute;
     top: 5px;
-    left: 150px;
-    color: #5f7d99;
+    left: 165px;
+    color: #3f8657;
 }
 
 #tetris {
     background-color: #AAA;
-    background-image: linear-gradient(#e1e7ed, #a9bfd4);
-    border: solid 2px #8396a8;
+    background-image: linear-gradient(#e1ede3, #a9d4b6);
+    border: solid 2px #3f8657;
     border-radius: 16px;
     display: flex;
     height: 630px;
@@ -814,7 +925,7 @@ h1 {
 }
 
 hr {
-    border: 1px solid #8396a8;
+    border: 1px solid #3f8657;
 }
 #sidebar-left
 {
@@ -855,8 +966,8 @@ a {
     left: 700px;
     padding: 16px 30px;
     background-color: #AAA;
-    background-image: linear-gradient(#e1e7ed, #a9bfd4);
-    border: solid 2px #8396a8;
+    background-image: linear-gradient(#e1ede3, #a9d4b6);
+    border: solid 2px #3f8657;
     border-radius: 16px;
     display: none;
     overflow-y: scroll;
@@ -876,7 +987,7 @@ a {
 }
 #leaderboard h2 {
     font-size: 20px;
-    color: #5f7d99;
+    color: #3f8657;
     text-align: center;
 }
 tr:hover {
@@ -891,7 +1002,7 @@ tr:hover {
     margin: 30px 0;
 }
 ::-webkit-scrollbar-thumb {
-    background: #5f7d99;
+    background: #3f8657;
     border-radius: 5px;
 }
 
@@ -901,8 +1012,8 @@ tr:hover {
     top: 285px;
     left: 600px;
     background-color: #AAA;
-    background-image: linear-gradient(#e1e7ed, #a9bfd4);
-    border: solid 2px #8396a8;
+    background-image: linear-gradient(#e1ede3, #a9d4b6);
+    border: solid 2px #3f8657;
     border-radius: 16px;
     padding: 3rem;
 }
@@ -911,7 +1022,7 @@ tr:hover {
     font-size: 20px;
     padding: 5px 0 5px 5px;
     background-color: black;
-    color: yellow;
+    color: #00CC00;
     border: none;
 }
 #highscore {
@@ -946,9 +1057,5 @@ footer {
     width: 100%;
     text-align: center;
     font-family: Arial, sans-serif;
-}
-footer a {
-    text-decoration: none;
-    color: #8396a8;
 }
 </style>
